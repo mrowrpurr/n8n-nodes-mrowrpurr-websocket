@@ -27,8 +27,7 @@
     "lint": "eslint .",
     "lintfix": "eslint . --fix",
     "prepublishOnly": "npm run build",
-    "clean": "rm -rf dist/",
-    "prepare": "npm run build"
+    "clean": "rm -rf dist/"
   },
   "files": [
     "dist/**/*",

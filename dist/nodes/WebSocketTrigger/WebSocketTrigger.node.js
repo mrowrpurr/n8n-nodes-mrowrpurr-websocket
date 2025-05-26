@@ -3,63 +3,65 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.WebSocketTrigger = void 0;
 const WebSocketRegistry_1 = require("../WebSocketRegistry");
 if (!global.websocketExecutionContext) {
+    ;
     global.websocketExecutionContext = {
-        servers: {}
+        servers: {},
+        listeners: {},
     };
 }
 class WebSocketTrigger {
     constructor() {
         this.description = {
-            displayName: 'WebSocket Trigger',
-            name: 'webSocketTrigger',
-            icon: 'fa:plug',
-            group: ['trigger'],
+            displayName: "WebSocket Trigger",
+            name: "webSocketTrigger",
+            icon: "fa:plug",
+            group: ["trigger"],
             version: 1,
-            description: 'Starts the workflow when a WebSocket message is received',
+            description: "Starts the workflow when a WebSocket message is received",
             defaults: {
-                name: 'WebSocket Trigger',
+                name: "WebSocket Trigger",
             },
             inputs: [],
-            outputs: ['main'],
+            outputs: ["main"],
             properties: [
                 {
-                    displayName: 'Port',
-                    name: 'port',
-                    type: 'number',
+                    displayName: "Port",
+                    name: "port",
+                    type: "number",
                     default: 5680,
                     required: true,
-                    description: 'The port to listen on',
+                    description: "The port to listen on",
                 },
                 {
-                    displayName: 'Path',
-                    name: 'path',
-                    type: 'string',
-                    default: '/ws',
+                    displayName: "Path",
+                    name: "path",
+                    type: "string",
+                    default: "/ws",
                     required: true,
-                    description: 'The WebSocket server path',
+                    description: "The WebSocket server path",
                 },
                 {
-                    displayName: 'Connection ID',
-                    name: 'connectionId',
-                    type: 'string',
-                    default: '',
+                    displayName: "Connection ID",
+                    name: "connectionId",
+                    type: "string",
+                    default: "",
                     required: false,
-                    description: 'Optional custom connection ID. If not provided, the port will be used',
+                    description: "Optional custom connection ID. If not provided, the port will be used",
                 },
                 {
-                    displayName: 'Info',
-                    name: 'info',
-                    type: 'notice',
-                    default: '',
+                    displayName: "Info",
+                    name: "info",
+                    type: "notice",
+                    default: "",
                     displayOptions: {
                         show: {
-                            '@version': [1],
+                            "@version": [1],
                         },
                     },
                     options: [
                         {
-                            name: 'info',
-                            value: 'The WebSocket server will be available at: ws://localhost:{port}{path}',
+                            name: "info",
+                            value: "The WebSocket server will be available at: ws://localhost:{port}{path}",
                         },
                     ],
                 },
@@ -67,9 +69,9 @@ class WebSocketTrigger {
         };
     }
     async trigger() {
-        const port = this.getNodeParameter('port');
-        const path = this.getNodeParameter('path');
-        const customConnectionId = this.getNodeParameter('connectionId', '');
+        const port = this.getNodeParameter("port");
+        const path = this.getNodeParameter("path");
+        const customConnectionId = this.getNodeParameter("connectionId", "");
         const executionId = this.getExecutionId();
         const nodeId = this.getNode().id;
         const connectionId = customConnectionId || `${port}`;
@@ -80,13 +82,29 @@ class WebSocketTrigger {
         if (!context.servers) {
             context.servers = {};
         }
+        if (!context.listeners) {
+            context.listeners = {};
+        }
         const registry = WebSocketRegistry_1.WebSocketRegistry.getInstance();
         console.error(`[DEBUG-TRIGGER] Current WebSocket Servers (Before Creation) ===`);
         registry.listServers();
         try {
-            await registry.closeServer(serverId, { keepClientsAlive: true });
+            const isWorkflowEdit = executionId === undefined;
+            console.error(`[DEBUG-TRIGGER] Is workflow edit: ${isWorkflowEdit}`);
+            await registry.closeServer(serverId, {
+                keepClientsAlive: !isWorkflowEdit,
+                executionId,
+            });
             const wss = await registry.getOrCreateServer(serverId, { port, path });
             console.error(`[DEBUG-TRIGGER] WebSocket server created/retrieved successfully`);
+            const oldListeners = context.listeners[serverId];
+            if (oldListeners) {
+                console.error(`[DEBUG-TRIGGER] Removing ${oldListeners.size} old listeners for server ${serverId}`);
+                for (const listener of oldListeners) {
+                    wss.off("message", listener);
+                }
+                oldListeners.clear();
+            }
             registry.registerExecution(serverId, executionId);
             context.servers[serverId] = {
                 serverId,
@@ -94,7 +112,7 @@ class WebSocketTrigger {
                 path,
                 nodeId,
                 executionId,
-                active: true
+                active: true,
             };
             console.error(`[DEBUG-TRIGGER] Server added to execution context: ${JSON.stringify(context.servers[serverId])}`);
             const executeTrigger = async (data) => {
@@ -107,7 +125,7 @@ class WebSocketTrigger {
                         nodeId,
                         executionId,
                         clientId: data.clientId,
-                        contextInfo: context.servers[serverId]
+                        contextInfo: context.servers[serverId],
                     };
                     console.error(`[DEBUG-TRIGGER] Received message. Server ID: ${serverId}, Client ID: ${data.clientId}`);
                     this.emit([this.helpers.returnJsonArray([outputData])]);
@@ -116,35 +134,58 @@ class WebSocketTrigger {
                     console.error(`[DEBUG-TRIGGER] Error in trigger execution:`, error);
                 }
             };
-            wss.on('message', executeTrigger);
+            if (!context.listeners[serverId]) {
+                context.listeners[serverId] = new Set();
+            }
+            context.listeners[serverId].add(executeTrigger);
+            wss.on("message", executeTrigger);
+            console.error(`[DEBUG-TRIGGER] Added new listener for server ${serverId}`);
             const server = registry.getServer(serverId);
             if (!server) {
                 throw new Error(`Failed to verify server ${serverId} is running`);
             }
             const self = this;
-            const isManualTrigger = !!this.getNodeParameter('manualTrigger', false);
+            const isManualTrigger = !!this.getNodeParameter("manualTrigger", false);
             if (!context.executionCounts) {
                 context.executionCounts = {};
             }
-            context.executionCounts[serverId] = (context.executionCounts[serverId] || 0) + 1;
+            context.executionCounts[serverId] =
+                (context.executionCounts[serverId] || 0) + 1;
             const executionCount = context.executionCounts[serverId];
             console.error(`[DEBUG-TRIGGER] Execution count for server ${serverId}: ${executionCount}`);
             async function closeFunction() {
                 console.error(`[DEBUG-TRIGGER] Closing WebSocket server with ID: ${serverId}`);
+                if (context.listeners && context.listeners[serverId]) {
+                    context.listeners[serverId].delete(executeTrigger);
+                    console.error(`[DEBUG-TRIGGER] Removed listener for server ${serverId}`);
+                }
                 if (context.servers && context.servers[serverId]) {
                     context.servers[serverId].active = false;
                 }
                 registry.unregisterExecution(serverId, executionId);
-                const forceSoftClose = true;
-                console.error(`[DEBUG-TRIGGER] Using soft close: ${forceSoftClose}`);
-                if (!forceSoftClose) {
-                    await registry.closeServer(serverId, { executionId });
-                    console.error(`[DEBUG-TRIGGER] Fully closed server due to workflow deactivation/deletion`);
+                const shouldHardClose = isWorkflowEdit;
+                console.error(`[DEBUG-TRIGGER] Using hard close: ${shouldHardClose}`);
+                if (shouldHardClose) {
+                    await registry.closeServer(serverId, {
+                        keepClientsAlive: false,
+                        executionId,
+                    });
+                    console.error(`[DEBUG-TRIGGER] Hard closed server due to workflow edit`);
                 }
                 else {
-                    await registry.closeServer(serverId, { keepClientsAlive: true, executionId });
+                    await registry.closeServer(serverId, {
+                        keepClientsAlive: true,
+                        executionId,
+                    });
                     console.error(`[DEBUG-TRIGGER] Soft-closed server to keep connections open for response nodes`);
                 }
+                if (context.servers && context.servers[serverId]) {
+                    delete context.servers[serverId];
+                }
+                if (context.listeners && context.listeners[serverId]) {
+                    delete context.listeners[serverId];
+                }
+                console.error(`[DEBUG-TRIGGER] Cleaned up global context for server ${serverId}`);
             }
             return {
                 closeFunction,

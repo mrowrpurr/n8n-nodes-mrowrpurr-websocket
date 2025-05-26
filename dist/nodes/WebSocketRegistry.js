@@ -4,14 +4,14 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.WebSocketRegistry = void 0;
-const ws_1 = __importDefault(require("ws"));
 const fs_1 = __importDefault(require("fs"));
-const path_1 = __importDefault(require("path"));
 const os_1 = __importDefault(require("os"));
+const path_1 = __importDefault(require("path"));
+const ws_1 = __importDefault(require("ws"));
 class WebSocketRegistry {
     constructor() {
         this.servers = new Map();
-        this.registryPath = path_1.default.join(os_1.default.tmpdir(), 'n8n-websocket-registry.json');
+        this.registryPath = path_1.default.join(os_1.default.tmpdir(), "n8n-websocket-registry.json");
         this.loadRegistry();
     }
     static getInstance() {
@@ -23,7 +23,7 @@ class WebSocketRegistry {
     loadRegistry() {
         try {
             if (fs_1.default.existsSync(this.registryPath)) {
-                const data = JSON.parse(fs_1.default.readFileSync(this.registryPath, 'utf8'));
+                const data = JSON.parse(fs_1.default.readFileSync(this.registryPath, "utf8"));
                 Object.entries(data).forEach(([serverId, serverInfo]) => {
                     if (!this.servers.has(serverId)) {
                         this.createServer(serverId, {
@@ -35,7 +35,7 @@ class WebSocketRegistry {
             }
         }
         catch (error) {
-            console.error('[DEBUG-REGISTRY] Error loading registry:', error);
+            console.error("[DEBUG-REGISTRY] Error loading registry:", error);
         }
     }
     saveRegistry() {
@@ -43,25 +43,25 @@ class WebSocketRegistry {
             const data = {};
             this.servers.forEach(({ wss, clients }, serverId) => {
                 const address = wss.address();
-                if (address && typeof address === 'object') {
+                if (address && typeof address === "object") {
                     data[serverId] = {
                         port: address.port,
                         path: wss.options.path,
-                        clients: clients,
+                        clientCount: clients.size,
                     };
                 }
             });
             fs_1.default.writeFileSync(this.registryPath, JSON.stringify(data, null, 2));
         }
         catch (error) {
-            console.error('[DEBUG-REGISTRY] Error saving registry:', error);
+            console.error("[DEBUG-REGISTRY] Error saving registry:", error);
         }
     }
     createServer(serverId, config) {
         console.error(`[DEBUG-REGISTRY] Creating WebSocket server on port ${config.port} with path ${config.path}`);
         const wss = new ws_1.default.Server({
             port: config.port,
-            path: config.path
+            path: config.path,
         });
         const clients = new Map();
         const activeExecutions = new Set();
@@ -80,45 +80,46 @@ class WebSocketRegistry {
                         console.error(`[DEBUG-REGISTRY] Error sending ping to client ${clientId}:`, error);
                     }
                 }
-                else if (client.readyState === ws_1.default.CLOSED || client.readyState === ws_1.default.CLOSING) {
+                else if (client.readyState === ws_1.default.CLOSED ||
+                    client.readyState === ws_1.default.CLOSING) {
                     console.error(`[DEBUG-REGISTRY] Removing dead client ${clientId} from server ${serverId}`);
                     clients.delete(clientId);
                     this.saveRegistry();
                 }
             });
         }, 30000);
-        wss.on('connection', (ws) => {
+        wss.on("connection", (ws) => {
             const clientId = Math.random().toString(36).substring(2, 8);
             clients.set(clientId, ws);
             console.error(`[DEBUG-REGISTRY] New client connected. Server ID: ${serverId}, Client ID: ${clientId}`);
             console.error(`[DEBUG-REGISTRY] Active Clients: ${clients.size}`);
             this.listClients(serverId);
-            ws.on('ping', () => {
+            ws.on("ping", () => {
                 if (ws.readyState === ws_1.default.OPEN) {
                     ws.pong();
                 }
             });
-            ws.on('pong', () => {
+            ws.on("pong", () => {
                 console.error(`[DEBUG-REGISTRY] Received pong from client ${clientId}`);
             });
-            ws.on('message', (message) => {
+            ws.on("message", (message) => {
                 console.error(`[DEBUG-REGISTRY] Received message from client ${clientId} on server ${serverId}`);
                 try {
                     const data = JSON.parse(message.toString());
-                    wss.emit('message', { ...data, clientId });
+                    wss.emit("message", { ...data, clientId });
                 }
                 catch (error) {
-                    wss.emit('message', { message: message.toString(), clientId });
+                    wss.emit("message", { message: message.toString(), clientId });
                 }
             });
-            ws.on('close', () => {
+            ws.on("close", () => {
                 clients.delete(clientId);
                 console.error(`[DEBUG-REGISTRY] Client ${clientId} disconnected from server ${serverId}`);
                 console.error(`[DEBUG-REGISTRY] Active Clients: ${clients.size}`);
                 this.listClients(serverId);
                 this.saveRegistry();
             });
-            ws.on('error', (error) => {
+            ws.on("error", error => {
                 console.error(`[DEBUG-REGISTRY] WebSocket error for client ${clientId}:`, error);
             });
         });
@@ -136,6 +137,16 @@ class WebSocketRegistry {
         this.loadRegistry();
         const server = this.servers.get(serverId);
         if (server) {
+            const address = server.wss.address();
+            if (address && typeof address === "object") {
+                const currentPort = address.port;
+                const currentPath = server.wss.options.path;
+                if (currentPort !== config.port || currentPath !== config.path) {
+                    console.error(`[DEBUG-REGISTRY] Server config changed for ${serverId}. Port: ${currentPort} -> ${config.port}, Path: ${currentPath} -> ${config.path}`);
+                    await this.closeServer(serverId, { keepClientsAlive: false });
+                    return this.createServer(serverId, config);
+                }
+            }
             return server.wss;
         }
         return this.createServer(serverId, config);
@@ -153,7 +164,7 @@ class WebSocketRegistry {
         var _a;
         const keepClientsAlive = options.keepClientsAlive !== false;
         const executionId = options.executionId;
-        console.error(`[DEBUG-REGISTRY] Attempting to close server with ID: ${serverId}. Keep clients alive: ${keepClientsAlive}, Execution ID: ${executionId || 'none'}`);
+        console.error(`[DEBUG-REGISTRY] Attempting to close server with ID: ${serverId}. Keep clients alive: ${keepClientsAlive}, Execution ID: ${executionId || "none"}`);
         const server = this.servers.get(serverId);
         if (server) {
             if (executionId && !server.activeExecutions) {
@@ -167,13 +178,14 @@ class WebSocketRegistry {
                 server.activeExecutions.delete(executionId);
                 console.error(`[DEBUG-REGISTRY] Removed execution ${executionId} from server ${serverId}. Remaining executions: ${server.activeExecutions.size}`);
             }
-            const hasActiveExecutions = server.activeExecutions !== undefined && server.activeExecutions.size > 0;
+            const hasActiveExecutions = server.activeExecutions !== undefined &&
+                server.activeExecutions.size > 0;
             const shouldKeepAlive = keepClientsAlive || hasActiveExecutions;
             if (hasActiveExecutions) {
                 console.error(`[DEBUG-REGISTRY] Server ${serverId} has ${(_a = server.activeExecutions) === null || _a === void 0 ? void 0 : _a.size} active executions - forcing keepClientsAlive to true`);
             }
             if (!shouldKeepAlive) {
-                server.clients.forEach((client) => {
+                server.clients.forEach(client => {
                     try {
                         client.close();
                     }
@@ -186,7 +198,7 @@ class WebSocketRegistry {
                 console.error(`[DEBUG-REGISTRY] Keeping ${server.clients.size} clients alive for server ${serverId}`);
             }
             if (!shouldKeepAlive) {
-                await new Promise((resolve) => {
+                await new Promise(resolve => {
                     server.wss.close(() => {
                         console.error(`[DEBUG-REGISTRY] Server fully closed. ID: ${serverId}`);
                         resolve();
@@ -203,10 +215,10 @@ class WebSocketRegistry {
     }
     listServers() {
         this.loadRegistry();
-        console.error('=== [DEBUG-REGISTRY] Available WebSocket Servers ===');
+        console.error("=== [DEBUG-REGISTRY] Available WebSocket Servers ===");
         this.servers.forEach(({ wss, clients }, serverId) => {
             const address = wss.address();
-            if (address && typeof address === 'object') {
+            if (address && typeof address === "object") {
                 console.error(`[DEBUG-REGISTRY] Server ID: ${serverId}`);
                 console.error(`[DEBUG-REGISTRY] Port: ${address.port}`);
                 console.error(`[DEBUG-REGISTRY] Path: ${wss.options.path}`);
@@ -214,7 +226,7 @@ class WebSocketRegistry {
                 this.listClients(serverId);
             }
         });
-        console.error('=== [DEBUG-REGISTRY] End of Server List ===');
+        console.error("=== [DEBUG-REGISTRY] End of Server List ===");
     }
     listClients(serverId) {
         const server = this.servers.get(serverId);
@@ -233,11 +245,16 @@ class WebSocketRegistry {
         console.error(`[DEBUG-REGISTRY] Broadcasting message to server ${serverId} with ${server.clients.size} clients`);
         server.clients.forEach((client, clientId) => {
             try {
-                client.send(message);
-                if (callback) {
-                    callback(client);
+                if (client.readyState === ws_1.default.OPEN) {
+                    client.send(message);
+                    if (callback) {
+                        callback(client);
+                    }
+                    console.error(`[DEBUG-REGISTRY] Message sent to client ${clientId}`);
                 }
-                console.error(`[DEBUG-REGISTRY] Message sent to client ${clientId}`);
+                else {
+                    console.error(`[DEBUG-REGISTRY] Skipping client ${clientId} - not open (state: ${client.readyState})`);
+                }
             }
             catch (error) {
                 console.error(`[DEBUG-REGISTRY] Error sending message to client ${clientId}:`, error);

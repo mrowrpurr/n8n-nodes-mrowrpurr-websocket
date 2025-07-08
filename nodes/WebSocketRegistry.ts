@@ -94,10 +94,12 @@ export class WebSocketRegistry {
     }
 
     // Add authentication if configured
-    if (config.authentication && config.authentication.type !== 'none') {
-      serverOptions.verifyClient = async (info) => {
+    if (config.authentication && config.authentication.type !== "none") {
+      serverOptions.verifyClient = async (info: any) => {
         try {
-          const { validateWebSocketAuthentication } = await import('./WebSocketTrigger/utils')
+          const { validateWebSocketAuthentication } = await import(
+            "./WebSocketTrigger/utils"
+          )
           await validateWebSocketAuthentication(
             info.req,
             config.authentication!.type,
@@ -105,7 +107,10 @@ export class WebSocketRegistry {
           )
           return true
         } catch (error: any) {
-          console.error(`[DEBUG-REGISTRY] Authentication failed for ${serverId}:`, error.message)
+          console.error(
+            `[DEBUG-REGISTRY] Authentication failed for ${serverId}:`,
+            error.message
+          )
           return false
         }
       }

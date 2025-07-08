@@ -86,10 +86,10 @@ class WebSocketRegistry {
             port: config.port,
             path: config.path,
         };
-        if (config.authentication && config.authentication.type !== 'none') {
+        if (config.authentication && config.authentication.type !== "none") {
             serverOptions.verifyClient = async (info) => {
                 try {
-                    const { validateWebSocketAuthentication } = await Promise.resolve().then(() => __importStar(require('./WebSocketTrigger/utils')));
+                    const { validateWebSocketAuthentication } = await Promise.resolve().then(() => __importStar(require("./WebSocketTrigger/utils")));
                     await validateWebSocketAuthentication(info.req, config.authentication.type, config.authentication.getCredentials);
                     return true;
                 }

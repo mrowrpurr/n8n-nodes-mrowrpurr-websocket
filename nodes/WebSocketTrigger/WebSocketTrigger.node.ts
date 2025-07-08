@@ -15,6 +15,8 @@ if (!(global as any).websocketExecutionContext) {
 }
 
 export class WebSocketTrigger implements INodeType {
+  authPropertyName = 'authentication';
+
   description: INodeTypeDescription = {
     displayName: "WebSocket Trigger",
     name: "webSocketTrigger",
@@ -27,6 +29,35 @@ export class WebSocketTrigger implements INodeType {
     },
     inputs: [],
     outputs: ["main"],
+    credentials: [
+      {
+        name: 'httpBasicAuth',
+        required: true,
+        displayOptions: {
+          show: {
+            authentication: ['basicAuth'],
+          },
+        },
+      },
+      {
+        name: 'httpHeaderAuth',
+        required: true,
+        displayOptions: {
+          show: {
+            authentication: ['headerAuth'],
+          },
+        },
+      },
+      {
+        name: 'jwtAuth',
+        required: true,
+        displayOptions: {
+          show: {
+            authentication: ['jwtAuth'],
+          },
+        },
+      },
+    ],
     properties: [
       {
         displayName: "Port",
@@ -52,6 +83,31 @@ export class WebSocketTrigger implements INodeType {
         required: false,
         description:
           "Optional custom connection ID. If not provided, the port will be used",
+      },
+      {
+        displayName: "Authentication",
+        name: "authentication",
+        type: "options",
+        options: [
+          {
+            name: "Basic Auth",
+            value: "basicAuth",
+          },
+          {
+            name: "Header Auth",
+            value: "headerAuth",
+          },
+          {
+            name: "JWT Auth",
+            value: "jwtAuth",
+          },
+          {
+            name: "None",
+            value: "none",
+          },
+        ],
+        default: "none",
+        description: "The way to authenticate WebSocket connections",
       },
       {
         displayName: "Info",
@@ -81,6 +137,7 @@ export class WebSocketTrigger implements INodeType {
       "connectionId",
       ""
     ) as string
+    const authentication = this.getNodeParameter("authentication") as string
 
     // Get execution and node IDs for context tracking
     const executionId = this.getExecutionId()
@@ -124,7 +181,22 @@ export class WebSocketTrigger implements INodeType {
       })
 
       // Create or get server
-      const wss = await registry.getOrCreateServer(serverId, { port, path })
+      const serverConfig = {
+        port,
+        path,
+        authentication: authentication !== 'none' ? {
+          type: authentication,
+          getCredentials: async (type: string) => {
+            try {
+              return await this.getCredentials(type);
+            } catch (error) {
+              console.error(`[DEBUG-TRIGGER] Failed to get credentials for ${type}:`, error);
+              return undefined;
+            }
+          }
+        } : undefined
+      };
+      const wss = await registry.getOrCreateServer(serverId, serverConfig)
       console.error(
         `[DEBUG-TRIGGER] WebSocket server created/retrieved successfully`
       )

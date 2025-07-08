@@ -13,6 +13,10 @@ interface IServerInfo {
 interface IServerConfig {
   port: number
   path: string
+  authentication?: {
+    type: string
+    getCredentials: (type: string) => Promise<any>
+  }
 }
 
 interface IServerEntry {
@@ -84,10 +88,30 @@ export class WebSocketRegistry {
       `[DEBUG-REGISTRY] Creating WebSocket server on port ${config.port} with path ${config.path}`
     )
 
-    const wss = new WebSocket.Server({
+    const serverOptions: WebSocket.ServerOptions = {
       port: config.port,
       path: config.path,
-    })
+    }
+
+    // Add authentication if configured
+    if (config.authentication && config.authentication.type !== 'none') {
+      serverOptions.verifyClient = async (info) => {
+        try {
+          const { validateWebSocketAuthentication } = await import('./WebSocketTrigger/utils')
+          await validateWebSocketAuthentication(
+            info.req,
+            config.authentication!.type,
+            config.authentication!.getCredentials
+          )
+          return true
+        } catch (error: any) {
+          console.error(`[DEBUG-REGISTRY] Authentication failed for ${serverId}:`, error.message)
+          return false
+        }
+      }
+    }
+
+    const wss = new WebSocket.Server(serverOptions)
 
     const clients = new Map<string, WebSocket>()
     const activeExecutions = new Set<string>() // Track active workflow executions

@@ -2,6 +2,10 @@ import WebSocket from "ws";
 interface IServerConfig {
     port: number;
     path: string;
+    authentication?: {
+        type: string;
+        getCredentials: (type: string) => Promise<any>;
+    };
 }
 export declare class WebSocketRegistry {
     private static instance;

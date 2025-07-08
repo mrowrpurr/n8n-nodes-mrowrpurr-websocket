@@ -11,6 +11,7 @@ if (!global.websocketExecutionContext) {
 }
 class WebSocketTrigger {
     constructor() {
+        this.authPropertyName = 'authentication';
         this.description = {
             displayName: "WebSocket Trigger",
             name: "webSocketTrigger",
@@ -23,6 +24,35 @@ class WebSocketTrigger {
             },
             inputs: [],
             outputs: ["main"],
+            credentials: [
+                {
+                    name: 'httpBasicAuth',
+                    required: true,
+                    displayOptions: {
+                        show: {
+                            authentication: ['basicAuth'],
+                        },
+                    },
+                },
+                {
+                    name: 'httpHeaderAuth',
+                    required: true,
+                    displayOptions: {
+                        show: {
+                            authentication: ['headerAuth'],
+                        },
+                    },
+                },
+                {
+                    name: 'jwtAuth',
+                    required: true,
+                    displayOptions: {
+                        show: {
+                            authentication: ['jwtAuth'],
+                        },
+                    },
+                },
+            ],
             properties: [
                 {
                     displayName: "Port",
@@ -49,6 +79,31 @@ class WebSocketTrigger {
                     description: "Optional custom connection ID. If not provided, the port will be used",
                 },
                 {
+                    displayName: "Authentication",
+                    name: "authentication",
+                    type: "options",
+                    options: [
+                        {
+                            name: "Basic Auth",
+                            value: "basicAuth",
+                        },
+                        {
+                            name: "Header Auth",
+                            value: "headerAuth",
+                        },
+                        {
+                            name: "JWT Auth",
+                            value: "jwtAuth",
+                        },
+                        {
+                            name: "None",
+                            value: "none",
+                        },
+                    ],
+                    default: "none",
+                    description: "The way to authenticate WebSocket connections",
+                },
+                {
                     displayName: "Info",
                     name: "info",
                     type: "notice",
@@ -72,6 +127,7 @@ class WebSocketTrigger {
         const port = this.getNodeParameter("port");
         const path = this.getNodeParameter("path");
         const customConnectionId = this.getNodeParameter("connectionId", "");
+        const authentication = this.getNodeParameter("authentication");
         const executionId = this.getExecutionId();
         const nodeId = this.getNode().id;
         const connectionId = customConnectionId || `${port}`;
@@ -95,7 +151,23 @@ class WebSocketTrigger {
                 keepClientsAlive: !isWorkflowEdit,
                 executionId,
             });
-            const wss = await registry.getOrCreateServer(serverId, { port, path });
+            const serverConfig = {
+                port,
+                path,
+                authentication: authentication !== 'none' ? {
+                    type: authentication,
+                    getCredentials: async (type) => {
+                        try {
+                            return await this.getCredentials(type);
+                        }
+                        catch (error) {
+                            console.error(`[DEBUG-TRIGGER] Failed to get credentials for ${type}:`, error);
+                            return undefined;
+                        }
+                    }
+                } : undefined
+            };
+            const wss = await registry.getOrCreateServer(serverId, serverConfig);
             console.error(`[DEBUG-TRIGGER] WebSocket server created/retrieved successfully`);
             const oldListeners = context.listeners[serverId];
             if (oldListeners) {
